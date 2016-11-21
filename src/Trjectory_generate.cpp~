@@ -1,0 +1,89 @@
+#include "ros/ros.h"
+#include "geometry_msgs/PoseStamped.h"
+#include <tf/transform_listener.h>
+#include <nav_msgs/Odometry.h>
+
+float param_x, param_y, param_z, param_radious, param_yaw;
+int param_rate;
+bool param_enable_tracking;
+bool ready_to_track = false;
+nav_msgs::Odometry sub_CurrPose;
+
+void Subscribe_CurrPose(const nav_msgs::Odometry& CurrPose)
+{
+    //FIXME
+    sub_CurrPose = *CurrPose;
+}
+
+int main(int argc, char **argv)
+{
+  ros::init(argc, argv, "Trajectory_generate");
+
+  ros::NodeHandle n;
+
+  ros::Publisher Trajectory_pub = n.advertise<geometry_msgs::PoseStamped>("goal", 1000);
+  ros::Subscriber CurrPose_Sub = n.subscribe("vo", 1, &Subscribe_CurrPose, this);
+
+  n.param<float>("x", param_x, 0);
+  n.param<float>("y", param_y, 0);
+  n.param<float>("z", param_z, 0.5);
+  n.param<float>("yaw", param_yaw, 0.5);
+  n.param<int>("rate", param_rate, 10);
+  n.param<float>("radious", param_radious, 0.5);
+  n.param<bool>("enable_tracking", param_enable_tracking, false);
+
+  ros::Rate loop_rate(param_rate);
+
+  if(param_enable_tracking)
+  {
+      ROS_INFO("Tracking Trajectory\nRadious: %f Rate: %d\n", param_radious, param_rate);
+  }else{
+      ROS_INFO("Position Hold\n Goal Point: %f, %f, %f\n", param_x, param_y, param_z);
+  }
+
+  int count = 0;
+  while (ros::ok())
+  {
+    tf::Quaternion quaternion;
+    geometry_msgs::PoseStamped msg;
+    msg.header.seq += 1;
+    msg.header.stamp = ros::Time::now();
+    if(ready_to_track == false)
+    {
+        if(sub_CurrPose.pose.pose.z > param_z && count > 10.0 * param_rate){
+	    ready_to_track = true;
+	}
+    }
+    if(param_enable_tracking == false || ready_to_track == false)
+    {
+        msg.pose.position.x = param_x;
+        msg.pose.position.y = param_y;
+        msg.pose.position.z = param_z;
+        quaternion.setRPY(0, 0, param_yaw);
+        msg.pose.orientation.x = quaternion.x();
+        msg.pose.orientation.y = quaternion.y();
+        msg.pose.orientation.z = quaternion.z();
+        msg.pose.orientation.w = quaternion.w();
+        Trajectory_pub.publish(msg);
+    }else if(ready_to_track == true){
+        msg.pose.position.x = param_radious * sin(count / 50.0);
+        msg.pose.position.y = param_radious * (1.0 - cos(count / 50.0));
+        msg.pose.position.z = param_z;
+	float yaw = count / 50.0;
+        quaternion.setRPY(0, 0, yaw);
+        msg.pose.orientation.x = quaternion.x();
+        msg.pose.orientation.y = quaternion.y();
+        msg.pose.orientation.z = quaternion.z();
+        msg.pose.orientation.w = quaternion.w();
+        Trajectory_pub.publish(msg);
+    }
+
+    ros::spinOnce();
+
+    loop_rate.sleep();
+    
+    ++count;
+  }
+
+  return 0;
+}

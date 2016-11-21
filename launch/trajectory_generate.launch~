@@ -1,0 +1,23 @@
+<?xml version="1.0"?>
+<launch>
+  <arg name="x" default="0" />
+  <arg name="y" default="0" />
+  <arg name="z" default="0.5" />
+  <arg name="yaw" default="0.5" />
+  <arg name="rate" default="10" />
+  <arg name="radious" default="0.5" />
+  <arg name="enable_tracking" default="true" />
+
+
+  <node name="trajectory_generate" pkg="trajectory_generate" type="trajectory_generate" output="screen">
+    <param name="x" value="$(arg x)" />
+    <param name="y" value="$(arg y)" />
+    <param name="z" value="$(arg z)" />
+    <param name="yaw" value="$(arg yaw)" />
+    <param name="rate" value="$(arg rate)" />
+    <param name="radious" value="$(arg radious)" />
+    <param name="enable_tracking" value="$(arg enable_tracking)" />
+  </node>
+
+
+</launch>
