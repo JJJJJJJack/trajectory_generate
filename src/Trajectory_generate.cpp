@@ -3,6 +3,7 @@
 #include "geometry_msgs/PoseStamped.h"
 #include <tf/transform_listener.h>
 #include <nav_msgs/Odometry.h>
+#include <std_msgs/Float64MultiArray.h>
 
 #include <fstream>
 
@@ -21,20 +22,34 @@
 #define TRAJEC_AGGRESSIVEEIGHT  11
 #define TRAJEC_FLOWER           12
 #define TRAJEC_FIGUREEIGHT      13
+#define TRAJEC_MINSNAP          14
 
 using namespace std;
 
 double param_x, param_y, param_z, param_radius, param_yaw, param_round_period;
-int param_rate, param_trajectory_style;
+int param_rate, param_trajectory_style, current_seg_num;
 bool param_enable_tracking;
-bool ready_to_track = false;
+bool ready_to_track = true, poly_ready = false, poly_coeff_ready = false, poly_time_ready = false;
 nav_msgs::Odometry sub_CurrPose;
 float last_x,last_y,last_z;
+std_msgs::Float64MultiArray poly_coeff, time_alloc;
 
 void Subscribe_CurrPose(const nav_msgs::Odometry& CurrPose)
 {
     //FIXME
     sub_CurrPose = CurrPose;
+}
+
+void Subscribe_PolyCoeff(const std_msgs::Float64MultiArray& poly_coeff_msg)
+{
+  poly_coeff_ready = true;
+  poly_coeff = poly_coeff_msg;
+}
+
+void Subscribe_TimeAlloc(const std_msgs::Float64MultiArray& time_alloc_msg)
+{
+  poly_time_ready = true;
+  time_alloc = time_alloc_msg;
 }
 
 int main(int argc, char **argv)
@@ -43,9 +58,11 @@ int main(int argc, char **argv)
 
   ros::NodeHandle n("~");
   ros::NodeHandle nh;
-  ros::Publisher Trajectory_pub = nh.advertise<geometry_msgs::PoseStamped>("goal", 1000);
+  ros::Publisher Trajectory_pub          = nh.advertise<geometry_msgs::PoseStamped>("goal", 1000);
   ros::Publisher Trajectory_velocity_pub = nh.advertise<geometry_msgs::Vector3>("goal_velocity", 1000);
-  ros::Subscriber CurrPose_Sub = nh.subscribe("pose", 1000, Subscribe_CurrPose);
+  ros::Subscriber CurrPose_Sub           = nh.subscribe("pose", 1000, Subscribe_CurrPose);
+  ros::Subscriber PolyCoeff_Sub          = nh.subscribe("/trajectory_generator_node/poly_coeff", 1, Subscribe_PolyCoeff);
+  ros::Subscriber TimeAlloc_Sub          = nh.subscribe("/trajectory_generator_node/time_alloc", 1, Subscribe_TimeAlloc);
 
   n.getParam("x", param_x);
   n.getParam("y", param_y);
@@ -56,9 +73,20 @@ int main(int argc, char **argv)
   n.getParam("enable_tracking", param_enable_tracking);
   n.getParam("round_period", param_round_period);
   n.getParam("trajectory_style", param_trajectory_style);
+
+  string CHIRP_PATH = "/home/USERNAME/catkin_ws/src/trajectory_generate/data/chirp.txt";
+  string FF_PATH = "/home/USERNAME/catkin_ws/src/trajectory_generate/data/FF_Trajectory.txt";
+
+  char* username;
+  username = (char *)malloc(4*sizeof(char));
+  cuserid(username);
+  string USERNAME(username);
+
+  CHIRP_PATH.replace(6,8,USERNAME);
+  FF_PATH.replace(6,8,USERNAME);
   
-  ifstream in("/home/darc/catkin_ws/src/trajectory_generate/data/chirp.txt"); 
-  ifstream in_FF("/home/darc/catkin_ws/src/trajectory_generate/data/FF_Trajectory.txt"); 
+  ifstream in(CHIRP_PATH);
+  ifstream in_FF(FF_PATH);
 
   ros::Rate loop_rate(param_rate);
 
@@ -76,16 +104,21 @@ int main(int argc, char **argv)
       ROS_INFO("\nPosition Hold\n Goal Point: %f, %f, %f\nYaw: %f", param_x, param_y, param_z, param_yaw * 57.3);
   }
 
+  // for min snap only
+  current_seg_num = 0;
+
+  
   double devide_variable = param_round_period * param_rate / 2.0 / pi;
 
-cout<<devide_variable<<endl;
+  cout<<devide_variable<<endl;
 
   int count = 0;
+  tf::Quaternion quaternion;
+  geometry_msgs::PoseStamped msg;
+  geometry_msgs::Vector3     msg_velocity;
+  
   while (ros::ok())
   {
-    tf::Quaternion quaternion;
-    geometry_msgs::PoseStamped msg;
-    geometry_msgs::Vector3     msg_velocity;
     msg.header.seq += 1;
     msg.header.stamp = ros::Time::now();
     if(ready_to_track == false)
@@ -300,6 +333,44 @@ cout<<devide_variable<<endl;
         msg.pose.orientation.z = quaternion.z();
         msg.pose.orientation.w = quaternion.w();
         Trajectory_pub.publish(msg);
+    }else if(ready_to_track == true && param_trajectory_style == TRAJEC_MINSNAP){
+        if(poly_coeff_ready && poly_time_ready){
+	  float time = (float)count / param_rate;
+	  int segment_num = poly_coeff.layout.dim[0].size;
+	  int poly_order = poly_coeff.layout.dim[1].size / 3;
+	  float minsnap_pos_x=0, minsnap_pos_y=0, minsnap_pos_z=0;
+	  // use to record the sum of time in the past segment
+	  float past_seg_time = 0;
+	  for(int i = 0; i < current_seg_num; i++){
+	    past_seg_time += time_alloc.data[i];
+	  }
+	  float time_in_trajectory = time - past_seg_time;
+	  if(current_seg_num < segment_num){
+	    //cerr<<"time: "<<time_alloc.data[current_seg_num]<<endl;
+	    if(time_in_trajectory >= time_alloc.data[current_seg_num]){
+	      current_seg_num += 1;
+	    }
+	    int coeff_segment_base = current_seg_num*poly_order*3;
+	    // calculate pose
+	    if(current_seg_num < segment_num){
+	      for(int order = 0; order < poly_order; order++){
+		minsnap_pos_x += poly_coeff.data[coeff_segment_base + poly_order - order - 1]*pow(time_in_trajectory, poly_order - order - 1);
+		minsnap_pos_y += poly_coeff.data[coeff_segment_base + poly_order*1 + poly_order - order - 1]*pow(time_in_trajectory, poly_order - order - 1);
+		minsnap_pos_z += poly_coeff.data[coeff_segment_base + poly_order*2 + poly_order - order - 1]*pow(time_in_trajectory, poly_order - order - 1);
+	      }
+	      msg.pose.position.x = minsnap_pos_x;
+	      msg.pose.position.y = minsnap_pos_y;
+	      msg.pose.position.z = minsnap_pos_z;
+	    }
+	    // calculate angle from acceration
+	  }
+	  quaternion.setRPY(0, 0, 0);
+	  msg.pose.orientation.x = quaternion.x();
+	  msg.pose.orientation.y = quaternion.y();
+	  msg.pose.orientation.z = quaternion.z();
+	  msg.pose.orientation.w = quaternion.w();
+	  Trajectory_pub.publish(msg);
+	}
     }
     ros::spinOnce();
 

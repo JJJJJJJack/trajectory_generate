@@ -109,7 +109,7 @@ add_executable(trajectory_generate src/Trajectory_generate.cpp)
 
 ## Add cmake target dependencies of the executable/library
 ## as an example, message headers may need to be generated before nodes
-add_dependencies(trajectory_generate trajectory_generate_generate_messages_cpp)
+#add_dependencies(trajectory_generate trajectory_generate_generate_messages_cpp)
 
 ## Specify libraries to link a library or executable target against
 target_link_libraries(trajectory_generate
