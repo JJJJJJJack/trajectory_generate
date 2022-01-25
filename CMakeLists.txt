@@ -9,8 +9,15 @@ find_package(catkin REQUIRED COMPONENTS
   message_runtime
   roscpp
   rospy
+  tf
+  tf_conversions
   std_msgs
-)
+  )
+
+
+find_package(Eigen3 REQUIRED)
+set(Eigen3_INCLUDE_DIRS ${EIGEN3_INCLUDE_DIR})
+
 
 ## System dependencies are found with CMake's conventions
 # find_package(Boost REQUIRED COMPONENTS system)
@@ -84,7 +91,7 @@ find_package(catkin REQUIRED COMPONENTS
 catkin_package(
 #  INCLUDE_DIRS include
 #  LIBRARIES trajectory_generate
-#  CATKIN_DEPENDS message_generation message_runtime roscpp rospy std_msgs
+#  CATKIN_DEPENDS roscpp rospy std_msgs tf
 #  DEPENDS system_lib
 )
 
@@ -97,6 +104,7 @@ catkin_package(
 # include_directories(include)
 include_directories(
   ${catkin_INCLUDE_DIRS}
+  ${Eigen3_INCLUDE_DIRS}
 )
 
 ## Declare a cpp library

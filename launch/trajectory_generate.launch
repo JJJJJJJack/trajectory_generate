@@ -8,7 +8,7 @@
   <arg name="radius" default="0.5" />
   <arg name="enable_tracking" default="true" />
   <arg name="round_period"  default="4.0" />
-  <arg name="trajectory_style" default="1" />
+  <arg name="trajectory_style" default="14" />
 
   <node name="trajectory_generate" pkg="trajectory_generate" type="trajectory_generate" output="screen">
     <param name="x" value="$(arg x)" />
