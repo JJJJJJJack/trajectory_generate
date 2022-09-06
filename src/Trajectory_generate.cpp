@@ -10,7 +10,7 @@
 
 #include <Eigen/Eigen>
 
-#define DEBUG_TRAJECTORY
+//#define DEBUG_TRAJECTORY
 
 #define pi 3.14159265354
 
@@ -35,6 +35,8 @@ double param_x, param_y, param_z, param_radius, param_yaw, param_round_period;
 int param_rate, param_trajectory_style, current_seg_num;
 bool param_enable_tracking;
 double param_vehicle_weight, param_vehicle_Jyy, param_vehicle_arm_length;
+string QUAD_NAME;
+char TF_QUAD_NAME[100], TF_ORIGIN_NAME[100];
 
 bool ready_to_track = false, poly_ready = false, poly_coeff_ready = false, poly_time_ready = false;
 nav_msgs::Odometry sub_CurrPose;
@@ -170,8 +172,8 @@ int main(int argc, char **argv)
   ros::Publisher Trajectory_euler_pub    = nh.advertise<geometry_msgs::Vector3>("goal_angle", 1);
   ros::Publisher Test_data_pub           = nh.advertise<geometry_msgs::Vector3>("trajectory_generate_test_data", 1);
   ros::Subscriber CurrPose_Sub           = nh.subscribe("pose", 5, Subscribe_CurrPose);
-  ros::Subscriber PolyCoeff_Sub          = nh.subscribe("/trajectory_generator_node/poly_coeff", 1, Subscribe_PolyCoeff);
-  ros::Subscriber TimeAlloc_Sub          = nh.subscribe("/trajectory_generator_node/time_alloc", 1, Subscribe_TimeAlloc);
+  ros::Subscriber PolyCoeff_Sub          = nh.subscribe("trajectory_generator_node/poly_coeff", 1, Subscribe_PolyCoeff);
+  ros::Subscriber TimeAlloc_Sub          = nh.subscribe("trajectory_generator_node/time_alloc", 1, Subscribe_TimeAlloc);
 
   n.getParam("x", param_x);
   n.getParam("y", param_y);
@@ -182,6 +184,12 @@ int main(int argc, char **argv)
   n.getParam("enable_tracking", param_enable_tracking);
   n.getParam("round_period", param_round_period);
   n.getParam("trajectory_style", param_trajectory_style);
+
+  n.param<std::string>("QUAD_NAME", QUAD_NAME, "jackQuad");
+  strcpy(TF_QUAD_NAME, QUAD_NAME.c_str());
+  strcpy(TF_ORIGIN_NAME, QUAD_NAME.c_str());
+  strcat(TF_ORIGIN_NAME, "origin");
+
 
   if(param_trajectory_style == TRAJEC_MINSNAP)
     {
@@ -251,7 +259,7 @@ int main(int argc, char **argv)
 
       tf::StampedTransform transform;
       try{
-	listener.lookupTransform("origin", "quad", ros::Time(0), transform);
+	listener.lookupTransform(TF_ORIGIN_NAME, TF_QUAD_NAME, ros::Time(0), transform);
       }catch(tf::TransformException &ex){
 	// Warn in AUTO mode without feedback
 	ROS_WARN_THROTTLE(5,"Trajectory: Origin or Quad not ready! Check vrpn...");
@@ -309,8 +317,8 @@ int main(int argc, char **argv)
         Trajectory_pub.publish(msg);
       }else if(ready_to_track == true && param_trajectory_style == TRAJEC_CIRCLE){
 	//double circle = fabs(cos(0.04 * count / 50.0));
-        msg.pose.position.x = param_radius * sin(count / devide_variable);
-        msg.pose.position.y = param_radius * (-cos(count / devide_variable));
+        msg.pose.position.x = param_x + param_radius * sin(count / devide_variable);
+        msg.pose.position.y = param_y + param_radius * (-cos(count / devide_variable));
         msg.pose.position.z = param_z;
 	float yaw = count / devide_variable;
         quaternion.setRPY(0, 0, 0);
@@ -565,9 +573,9 @@ int main(int argc, char **argv)
 	      tempAngle << minsnap_yaw_rate, temp_pitch, temp_roll;
 
 	      msg_euler.x = tempAngle(2);
-	      msg_euler.y = eulerAngle(1);
+	      msg_euler.y = tempAngle(1);
 	      msg_euler.z = tempAngle(0);
-	      goalAngle = tempAngle;
+	      goalAngle = eulerAngle;
 	      msg_test_data.x = alpha;
 	      Test_data_pub.publish(msg_test_data);
 	      //cerr<<"RNW:"<<endl<<R_N_W<<endl;
