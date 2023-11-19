@@ -5,12 +5,13 @@
 #include <tf_conversions/tf_eigen.h>
 #include <nav_msgs/Odometry.h>
 #include <std_msgs/Float64MultiArray.h>
+#include "sensor_msgs/Joy.h"
 
 #include <fstream>
 
 #include <Eigen/Eigen>
 
-//#define DEBUG_TRAJECTORY
+#define DEBUG_TRAJECTORY
 
 #define pi 3.14159265354
 
@@ -28,6 +29,18 @@
 #define TRAJEC_FLOWER           12
 #define TRAJEC_FIGUREEIGHT      13
 #define TRAJEC_MINSNAP          14
+#define TRAJEC_VIRTUAL_WALL     15
+
+// Joystick button settings
+#define JOY_CHANNEL_ARM 0
+#define JOY_CHANNEL_FLIGHT_MODE 1
+// Joy stick axes settings
+#define JOY_CHANNEL_ROLL 0
+#define JOY_CHANNEL_PITCH 1
+#define JOY_CHANNEL_YAW 2
+#define JOY_CHANNEL_THROTTLE 3
+#define JOY_CONTROL_LAND 4
+#define JOY_CONTROL_TYPE 5
 
 using namespace std;
 
@@ -38,10 +51,14 @@ double param_vehicle_weight, param_vehicle_Jyy, param_vehicle_arm_length;
 string QUAD_NAME;
 char TF_QUAD_NAME[100], TF_ORIGIN_NAME[100];
 
-bool ready_to_track = false, poly_ready = false, poly_coeff_ready = false, poly_time_ready = false;
+bool ready_to_track = false, poly_ready = false, poly_coeff_ready = false, poly_time_ready = false, JOY_READY = false;
 nav_msgs::Odometry sub_CurrPose;
 float last_x,last_y,last_z;
 std_msgs::Float64MultiArray poly_coeff, time_alloc;
+
+// for virtual wall position flight
+sensor_msgs::Joy joystick_input;
+float wall_x, wall_y, wall_z;
 
 double saturate(double input, double min, double max)
 {
@@ -50,6 +67,13 @@ double saturate(double input, double min, double max)
   if(input >= max)
     return max;
   return input;
+}
+
+void joystick_callback(const sensor_msgs::Joy& message){
+  if(JOY_READY == false){
+    JOY_READY = true;
+  }
+  joystick_input = message;
 }
 
 void Subscribe_CurrPose(const nav_msgs::Odometry& CurrPose)
@@ -185,6 +209,10 @@ int main(int argc, char **argv)
   n.getParam("round_period", param_round_period);
   n.getParam("trajectory_style", param_trajectory_style);
 
+  n.param<float>("wallX", wall_x, 3.0f);
+  n.param<float>("wallY", wall_y, 3.0f);
+  n.param<float>("wallZ", wall_z, 1.5f);
+
   n.param<std::string>("QUAD_NAME", QUAD_NAME, "jackQuad");
   strcpy(TF_QUAD_NAME, QUAD_NAME.c_str());
   strcpy(TF_ORIGIN_NAME, QUAD_NAME.c_str());
@@ -303,13 +331,13 @@ int main(int argc, char **argv)
 	  Trajectory_euler_pub.publish(msg_euler);
 	  Trajectory_velocity_pub.publish(msg_velocity);
 	}else if(ready_to_track == true && param_trajectory_style == TRAJEC_LINE_X){
-        msg.pose.position.x = param_radius * sin(count / devide_variable);
+        msg.pose.position.x = param_x + param_radius * sin(count / devide_variable);
 	//msg.pose.position.x = 0;
-        msg.pose.position.y = 0;
+        msg.pose.position.y = param_y;
 	//msg.pose.position.y = param_radius * (1.0 - cos(count / devide_variable));
         msg.pose.position.z = param_z;
 	float yaw = count / devide_variable;
-        quaternion.setRPY(0, 0, yaw);
+        quaternion.setRPY(0, 0, 0);
         msg.pose.orientation.x = quaternion.x();
         msg.pose.orientation.y = quaternion.y();
         msg.pose.orientation.z = quaternion.z();
@@ -321,7 +349,7 @@ int main(int argc, char **argv)
         msg.pose.position.y = param_y + param_radius * (-cos(count / devide_variable));
         msg.pose.position.z = param_z;
 	float yaw = count / devide_variable;
-        quaternion.setRPY(0, 0, 0);
+        quaternion.setRPY(0, 0, yaw);
         msg.pose.orientation.x = quaternion.x();
         msg.pose.orientation.y = quaternion.y();
         msg.pose.orientation.z = quaternion.z();
@@ -426,9 +454,9 @@ int main(int argc, char **argv)
         Trajectory_pub.publish(msg);
       }else if(ready_to_track == true && param_trajectory_style == TRAJEC_LINE_Y){
         //msg.pose.position.x = param_radius * sin(count / devide_variable);
-	msg.pose.position.x = 0;
+	msg.pose.position.x = param_x;
         //msg.pose.position.y = 0;
-	msg.pose.position.y = param_radius * (- cos(count / devide_variable));
+	msg.pose.position.y = param_y + param_radius * (- cos(count / devide_variable));
         msg.pose.position.z = param_z;
 	float yaw = count / devide_variable;
         quaternion.setRPY(0, 0, yaw);
@@ -440,20 +468,20 @@ int main(int argc, char **argv)
       }else if(ready_to_track == true && param_trajectory_style == TRAJEC_SQUARE){
 	float Tf = param_round_period * param_rate;
 	if(count <= Tf/4){
-	  msg.pose.position.x = -param_radius + 8 * param_radius * count / Tf;
-	  msg.pose.position.y = -param_radius;
+	  msg.pose.position.x = param_x - param_radius + 8 * param_radius * count / Tf;
+	  msg.pose.position.y = param_y - param_radius;
 	}else if(count <= Tf/2){
-	  msg.pose.position.x = param_radius;
-	  msg.pose.position.y = -param_radius + 8 * param_radius * (count - Tf/4) / Tf;
+	  msg.pose.position.x = param_x + param_radius;
+	  msg.pose.position.y = param_y - param_radius + 8 * param_radius * (count - Tf/4) / Tf;
 	}else if(count <= 3*Tf/4){
-	  msg.pose.position.x = param_radius - 8 * param_radius * (count - Tf/2) / Tf;
-	  msg.pose.position.y = param_radius;
+	  msg.pose.position.x = param_x + param_radius - 8 * param_radius * (count - Tf/2) / Tf;
+	  msg.pose.position.y = param_y + param_radius;
 	}else if(count < Tf){
-	  msg.pose.position.x = -param_radius;
-	  msg.pose.position.y = param_radius - 8 * param_radius * (count - 3*Tf/4) / Tf;
+	  msg.pose.position.x = param_x - param_radius;
+	  msg.pose.position.y = param_y + param_radius - 8 * param_radius * (count - 3*Tf/4) / Tf;
 	}else if(count == Tf){
-	  msg.pose.position.x = -param_radius;
-	  msg.pose.position.y = param_radius - 8 * param_radius * (count - 3*Tf/4) / Tf;
+	  msg.pose.position.x = param_x - param_radius;
+	  msg.pose.position.y = param_y + param_radius - 8 * param_radius * (count - 3*Tf/4) / Tf;
 	  count = 0;
 	}
         msg.pose.position.z = param_z;
@@ -464,8 +492,8 @@ int main(int argc, char **argv)
         msg.pose.orientation.w = quaternion.w();
         Trajectory_pub.publish(msg);
       }else if(ready_to_track == true && param_trajectory_style == TRAJEC_AGGRESSIVEEIGHT){
-	msg.pose.position.x = param_radius * sin((count - 0.5 * param_round_period * param_rate) / devide_variable) * cos((count - 0.5 * param_round_period * param_rate) / devide_variable);
-	msg.pose.position.y = param_radius * cos((count - 0.5 * param_round_period * param_rate) / devide_variable);
+	msg.pose.position.x = param_x + param_radius * sin((count - 0.5 * param_round_period * param_rate) / devide_variable) * cos((count - 0.5 * param_round_period * param_rate) / devide_variable);
+	msg.pose.position.y = param_y + param_radius * cos((count - 0.5 * param_round_period * param_rate) / devide_variable);
         msg.pose.position.z = param_z;
         quaternion.setRPY(0, 0, 0);
         msg.pose.orientation.x = quaternion.x();
@@ -474,8 +502,8 @@ int main(int argc, char **argv)
         msg.pose.orientation.w = quaternion.w();
         Trajectory_pub.publish(msg);
       }else if(ready_to_track == true && param_trajectory_style == TRAJEC_FLOWER){
-	msg.pose.position.x = 1.414213562 * param_radius * (cos(2.0 * count / devide_variable)>=0?1.0:-1.0) * sqrt(fabs(cos(2.0*count / devide_variable))) * cos(count / devide_variable);
-	msg.pose.position.y = 1.414213562 * param_radius * (cos(2.0 * count / devide_variable)>=0?1.0:-1.0) * sqrt(fabs(cos(2.0*count / devide_variable))) * sin(count / devide_variable);
+	msg.pose.position.x = param_x + 1.414213562 * param_radius * (cos(2.0 * count / devide_variable)>=0?1.0:-1.0) * sqrt(fabs(cos(2.0*count / devide_variable))) * cos(count / devide_variable);
+	msg.pose.position.y = param_y + 1.414213562 * param_radius * (cos(2.0 * count / devide_variable)>=0?1.0:-1.0) * sqrt(fabs(cos(2.0*count / devide_variable))) * sin(count / devide_variable);
         msg.pose.position.z = param_z;
         quaternion.setRPY(0, 0, 0);
         msg.pose.orientation.x = quaternion.x();
@@ -593,6 +621,20 @@ int main(int argc, char **argv)
 	  msg.pose.orientation.w = quaternion.w();
 	  Trajectory_pub.publish(msg);
 	  Trajectory_euler_pub.publish(msg_euler);
+	}else if(ready_to_track == true && param_trajectory_style == TRAJEC_VIRTUAL_WALL){
+	  tf::Quaternion quadRotationQuat = transform.getRotation();
+	  tf::Vector3 joystickBody(joystick_input.axes[JOY_CHANNEL_PITCH],joystick_input.axes[JOY_CHANNEL_ROLL],joystick_input.axes[JOY_CHANNEL_YAW]);
+	  tf::Vector3 joystickWorld = joystickBody.rotate(quadRotationQuat.getAxis(), quadRotationQuat.getAngle());
+	  msg.pose.position.x += joystickWorld.getX();
+	  msg.pose.position.y += joystickWorld.getY();
+	  msg.pose.position.z += joystickWorld.getZ();
+	  float yaw = 0;
+	  quaternion.setRPY(0, 0, yaw);
+	  msg.pose.orientation.x = quaternion.x();
+	  msg.pose.orientation.y = quaternion.y();
+	  msg.pose.orientation.z = quaternion.z();
+	  msg.pose.orientation.w = quaternion.w();
+	  Trajectory_pub.publish(msg);
 	}
       }
       ros::spinOnce();
